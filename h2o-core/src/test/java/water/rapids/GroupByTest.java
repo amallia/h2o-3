@@ -10,6 +10,8 @@ import water.TestUtil;
 import water.fvec.Frame;
 import water.rapids.vals.ValFrame;
 
+import static org.junit.Assert.assertTrue;
+
 public class GroupByTest extends TestUtil {
   @BeforeClass public static void setup() { stall_till_cloudsize(5); }
 
@@ -213,6 +215,23 @@ public class GroupByTest extends TestUtil {
     cov.delete();
   }
 
+  @Test public void testGroupbyMedian() {
+    Frame fr = null;
+    String tree = "(GB hex [0] median 1 \"all\")"; // Group-By on col 0 median of col 1
+    double[] correct_median = {0.49851096435701053, 0.50183187047352851, 0.50187234362560651, 0.50528965387515079,
+            0.49887302541203787};  // order may not be correct
+    try {
+    //  fr = chkTree(tree, "smalldata/jira/pubdev_4727_median.csv");
+      fr = chkTree(tree, "smalldata/jira/pubdev_4727_junit_data.csv");
+      for (int index=0; index < fr.numRows(); index++) {  // compare with correct medians
+        assertTrue(Math.abs(correct_median[(int)fr.vec(0).at(index)]-fr.vec(1).at(index))<1e-12);
+      }
+    } finally {
+      if( fr != null ) fr.delete();
+      Keyed.remove(Key.make("hex"));
+    }
+  }
+
   @Test public void testGroupbyTableSpeed() {
     Frame ids = parse_test_file(Key.make("cov"),"smalldata/junit/id_cols.csv");
     ids.replace(0,ids.anyVec().toCategoricalVec()).remove();
@@ -240,7 +259,7 @@ public class GroupByTest extends TestUtil {
   }
   private void chkFr( Frame fr, int col, int row, double exp ) { chkFr(fr,col,row,exp,Math.ulp(1)); }
   private void chkFr( Frame fr, int col, int row, double exp, double tol ) { 
-    if( Double.isNaN(exp) ) Assert.assertTrue(fr.vec(col).isNA(row));
+    if( Double.isNaN(exp) ) assertTrue(fr.vec(col).isNA(row));
     else                    Assert.assertEquals(exp, fr.vec(col).at(row),tol); 
   }
   private void chkFr( Frame fr, int col, int row, String exp ) { 

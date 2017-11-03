@@ -1,20 +1,16 @@
 package water.rapids.ast.prims.mungers;
 
-import water.H2O;
-import water.Iced;
-import water.MRTask;
-import water.fvec.Chunk;
-import water.fvec.Frame;
-import water.fvec.NewChunk;
-import water.fvec.Vec;
+import water.*;
+import water.fvec.*;
 import water.rapids.Env;
+import water.rapids.Merge;
 import water.rapids.Val;
-import water.rapids.ast.AstRoot;
-import water.rapids.vals.ValFrame;
-import water.rapids.vals.ValFun;
 import water.rapids.ast.AstPrimitive;
+import water.rapids.ast.AstRoot;
 import water.rapids.ast.params.AstNum;
 import water.rapids.ast.params.AstNumList;
+import water.rapids.vals.ValFrame;
+import water.rapids.vals.ValFun;
 import water.util.ArrayUtils;
 import water.util.IcedHashMap;
 import water.util.Log;
@@ -192,6 +188,27 @@ public class AstGroup extends AstPrimitive {
         return new double[]{-Double.MAX_VALUE};
       }
     },
+    median() {  // we will be doing our own thing here for median
+      @Override
+      public void op(double[] d0s, double d1) {
+        ;
+      }
+
+      @Override
+      public void atomic_op(double[] d0s, double[] d1s) {
+        ;
+      }
+
+      @Override
+      public double postPass(double ds[], long n) {
+        return 0;
+      }
+
+      @Override
+      public double[] initVal(int maxx) {
+        return new double[maxx];
+      }
+    },
     mode() {
       @Override
       public void op(double[] d0s, double d1) {
@@ -311,8 +328,12 @@ public class AstGroup extends AstPrimitive {
           int j;
           for (j = 0; j < g._gs.length; j++) // The Group Key, as a row
             ncs[j].addNum(g._gs[j]);
-          for (int a = 0; a < aggs.length; a++)
-            ncs[j++].addNum(aggs[a]._fcn.postPass(g._dss[a], g._ns[a]));
+          for (int a = 0; a < aggs.length; a++) {
+            if (aggs[a]._fcn.toString().equals("median"))
+              ncs[j++].addNum(aggs[a].postPassM(g, a));
+            else
+              ncs[j++].addNum(aggs[a]._fcn.postPass(g._dss[a], g._ns[a]));
+          }
         }
       }
     };
@@ -398,12 +419,55 @@ public class AstGroup extends AstPrimitive {
       if (!Double.isNaN(d1) || _na == NAHandling.IGNORE) n0s[i]++;
     }
 
+    // op for Median function;
+    public void opM(long[] n0s, int i, double d1, NewChunk[] myChunks) {
+      // Normal number or ALL   : add value to myChunks[i]
+      if (!Double.isNaN(d1) || _na == NAHandling.ALL) myChunks[i].addNum(d1);
+      // Normal number or IGNORE: bump count; RM: do not bump count
+      if (!Double.isNaN(d1) || _na == NAHandling.IGNORE) n0s[i]++;
+    }
+
+    // Median is the middle element of a sorted column or the mean of the two middle elements for even row number.
+    // Our sort will put all NA rows at the front of the column.
+    public double postPassM(G g, int groupNumber) {
+      Futures fs = new Futures();
+      Vec[] tempVec = new Vec[1];
+      g._myChunk[groupNumber].close(fs);
+      tempVec[0] = g._av[groupNumber].layout_and_close(fs);
+      fs.blockForPending();
+      Frame myFrame = new Frame(Key.<Frame>make(), tempVec, true);
+
+      long totalRows = myFrame.numRows();
+      double medianVal;
+
+      if (totalRows == 0) {
+        medianVal = Double.NaN;  // return NAN for empty frames.  Should not have happened!
+      } else {
+        long midRow = totalRows / 2;
+        Frame tempFrame = Merge.sort(myFrame, new int[]{0});
+        medianVal = totalRows % 2 == 0 ? 0.5 * (tempFrame.vec(0).at(midRow - 1) +
+                tempFrame.vec(0).at(midRow)) : tempFrame.vec(0).at(midRow);
+        tempFrame.delete();
+      }
+      myFrame.delete();
+      return medianVal; // mean of two middle ones for even row number.
+    }
+
     // Atomically update the array pair {dss[i],ns[i]} with the pair {d1,n1}.
     // Same as op() above, but called racily and updates atomically.
     public void atomic_op(double[][] d0ss, long[] n0s, int i, double[] d1s, long n1) {
       synchronized (d0ss[i]) {
         _fcn.atomic_op(d0ss[i], d1s);
         n0s[i] += n1;
+      }
+    }
+
+    public void atomic_opM(long[] n0s, int i, long n1, NewChunk[] lChunks, Chunk[] rChunks) {
+      synchronized (lChunks[i]) {
+        for (int rindex = 0; rindex < rChunks[i]._len; rindex++) {
+          lChunks[i].addNum(rChunks[i].atd(rindex));
+          n0s[i] += n1;
+        }
       }
     }
 
@@ -420,10 +484,12 @@ public class AstGroup extends AstPrimitive {
     private final int[] _gbCols; // Columns used to define group
     private final AGG[] _aggs;   // Aggregate descriptions
 
+
     GBTask(int[] gbCols, AGG[] aggs) {
       _gbCols = gbCols;
       _aggs = aggs;
       _gss = new IcedHashMap<>();
+
     }
 
     @Override
@@ -441,6 +507,9 @@ public class AstGroup extends AstPrimitive {
         } else gOld = gs.getk(gWork);            // Else get existing group
 
         for (int i = 0; i < _aggs.length; i++) // Accumulate aggregate reductions
+          if (_aggs[i]._fcn.toString().equals("median"))
+            _aggs[i].opM(gOld._ns, i, cs[_aggs[i]._col].atd(row), gOld._myChunk);
+        else
           _aggs[i].op(gOld._dss, gOld._ns, i, cs[_aggs[i]._col].atd(row));
       }
       // This is a racy update into the node-local shared table of groups
@@ -461,7 +530,10 @@ public class AstGroup extends AstPrimitive {
         if (_gss.putIfAbsent(rg, "") != null) {
           G lg = _gss.getk(rg);
           for (int i = 0; i < _aggs.length; i++)
-            _aggs[i].atomic_op(lg._dss, lg._ns, i, rg._dss[i], rg._ns[i]); // Need to atomically merge groups here
+            if (_aggs[i]._fcn.toString().equals("median"))
+              _aggs[i].atomic_opM(lg._ns, i, rg._ns[i], lg._myChunk, rg._myChunk);  // special median operation
+            else
+              _aggs[i].atomic_op(lg._dss, lg._ns, i, rg._dss[i], rg._ns[i]); // Need to atomically merge groups here
         }
     }
   }
@@ -475,13 +547,26 @@ public class AstGroup extends AstPrimitive {
 
     public final double _dss[][];      // Aggregates: usually sum or sum*2
     public final long _ns[];         // row counts per aggregate, varies by NA handling and column
+    public NewChunk[] _myChunk;        // new chunks to store values belonging to this group
+    public AppendableVec[] _av;
+    Key[] _keys;
 
     public G(int ncols, AGG[] aggs) {
       _gs = new double[ncols];
       int len = aggs == null ? 0 : aggs.length;
       _dss = new double[len][];
       _ns = new long[len];
-      for (int i = 0; i < len; i++) _dss[i] = aggs[i].initVal();
+      _myChunk = new NewChunk[len];
+      _av = new AppendableVec[len];
+      _keys = Vec.VectorGroup.VG_LEN1.addVecs(len);
+
+      for (int i = 0; i < len; i++) {
+        _dss[i] = aggs[i].initVal();
+        if (aggs[i]._fcn.toString().equals("median")) { // for median function only
+          _av[i] = new AppendableVec(_keys[i], Vec.T_NUM);
+          _myChunk[i] = new NewChunk(_av[i], 0);
+        }
+      }
     }
 
     public G fill(int row, Chunk chks[], int cols[]) {
