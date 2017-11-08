@@ -1,3 +1,12 @@
+@Library('test-shared-library') _
+
+import ai.h2o.ci.Utils
+import ai.h2o.ci.BuildInfo
+import static ai.h2o.ci.Utils.banner
+
+// Global library
+def utilsLib = new Utils()
+
 def DEFAULT_NODE_LABEL = 'docker && !mr-0xc8'
 
 def executeTestStages = null
@@ -24,7 +33,7 @@ ansiColor('xterm') {
         setBuildDesc()
 
         def prepareH2O3 = load('h2o-3/scripts/jenkins/groovy/prepareH2O3.groovy')
-        buildConfig = prepareH2O3('MODE_MASTER', DEFAULT_NODE_LABEL, true)
+        buildConfig = prepareH2O3('MODE_MASTER', true)
         buildConfig.setDefaultOverrideRerun(true)
 
         def setJobProperties = load('h2o-3/scripts/jenkins/groovy/setJobProperties.groovy')

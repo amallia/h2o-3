@@ -36,7 +36,12 @@ def call(body) {
       junit testResults: "${config.h2o3dir}/**/test-results/*.xml", allowEmptyResults: true, keepLongStdio: true
     }
     if (config.archiveFiles) {
-      archiveArtifacts artifacts: FILES_TO_ARCHIVE.collect{"${config.h2o3dir}/${it}"}.join(', '), allowEmptyArchive: true
+      archiveStageFiles(config.h2o3dir, FILES_TO_ARCHIVE)
+      if (config.archiveAdditionalFiles) {
+        echo "###### Archiving additional files: ######"
+        echo "${config.archiveAdditionalFiles}"
+        archiveStageFiles(config.h2o3dir, config.archiveAdditionalFiles)
+      }
     }
   }
 }
@@ -66,6 +71,10 @@ def execMake(target, String h2o3dir) {
     echo "Running Make"
     make -f docker/Makefile.jenkins ${target}
   """
+}
+
+def archiveStageFiles(h2o3dir, files) {
+  archiveArtifacts artifacts: files.collect{"${h2o3dir}/${it}"}.join(', '), allowEmptyArchive: true
 }
 
 return this

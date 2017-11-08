@@ -39,7 +39,7 @@ test-package-r:
 		h2o-assemblies/genmodel/build/libs/genmodel.jar scripts/run.py \
 		docker/Makefile.jenkins tests/runitSmokeTestList \
 		h2o-r/scripts/h2o-r-test-setup.R scripts/validate_r_cmd_check_output.R \
-		scripts/validate_r_cmd_check_output.py
+		scripts/validate_r_cmd_check_output.py h2o-3-DESCRIPTION
 
 test-py-smoke:
 	cd h2o-py/tests/ && rm -f -r testdir_hdfs
@@ -201,3 +201,7 @@ test-junit:
 
 test-junit-smoke:
 	DOONLY=$$(head -n 1 tests/doOnlyJunitSmokeTestList) ./gradlew h2o-core:test h2o-algos:test h2o-scala_2.10:test h2o-scala_2.11:test
+
+benchmark-gbm:
+	cd ml-benchmark/h2oR/ && R -f h2o_gbm.R
+
