@@ -5,7 +5,7 @@ def call(buildConfig, stageConfig) {
   def s3upload = load('h2o-3/scripts/jenkins/groovy/s3upload.groovy')
 
   def DATASETS_FILE = 'accuracy_datasets_docker.csv'
-  def TEST_CASES_FILE = 'test_cases_dev.csv'
+  def TEST_CASES_FILE = "test_cases_${stageConfig.model}.csv"
   def BENCHMARK_RESULTS_FOLDER = 'benchmark_results'
   def BENCHMARK_SUMMARY_FILE = 'benchmark_results.csv'
   def ML_BENCHMARK_ROOT = "${env.WORKSPACE}/${stageNameToDirName(stageConfig.stageName)}/h2o-3/ml-benchmark"
@@ -42,7 +42,8 @@ def call(buildConfig, stageConfig) {
   def benchmarkEnv = [
     "OUTPUT_PREFIX=${stageConfig.benchmarkResultsRoot}",
     "DATASETS_PATH=${stageConfig.datasetsPath}",
-    "TEST_CASES_PATH=${stageConfig.testCasesPath}"
+    "TEST_CASES_PATH=${stageConfig.testCasesPath}",
+    "BENCHMARK_MODEL=${stageConfig.model}"
   ]
   withEnv(benchmarkEnv) {
     defaultStage(buildConfig, stageConfig)

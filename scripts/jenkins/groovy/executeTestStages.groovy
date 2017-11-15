@@ -31,9 +31,15 @@ def call(buildConfig) {
     ],
     [
       stageName: 'GBM Benchmark', executionScript: 'h2o-3/scripts/jenkins/groovy/benchmarkStage.groovy',
-      timeoutValue: 120, target: 'benchmark-gbm', lang: buildConfig.LANG_NONE,
+      timeoutValue: 120, target: 'benchmark', lang: buildConfig.LANG_NONE,
       additionalTestPackages: [buildConfig.LANG_R], image: buildConfig.BENCHMARK_IMAGE,
-      nodeLabel: buildConfig.getBenchmarkNodeLabel()
+      nodeLabel: buildConfig.getBenchmarkNodeLabel(), model: 'gbm'
+    ],
+    [
+      stageName: 'GLM Benchmark', executionScript: 'h2o-3/scripts/jenkins/groovy/benchmarkStage.groovy',
+      timeoutValue: 120, target: 'benchmark', lang: buildConfig.LANG_NONE,
+      additionalTestPackages: [buildConfig.LANG_R], image: buildConfig.BENCHMARK_IMAGE,
+      nodeLabel: buildConfig.getBenchmarkNodeLabel(), model: 'glm'
     ]
   ]
 
@@ -216,6 +222,7 @@ def executeInParallel(jobs, buildConfig) {
           executionScript = c['executionScript']
           args = c['args']
           image = c['image']
+          model = c['model']
         }
       }
     ]
